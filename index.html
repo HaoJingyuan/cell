@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>CellEater</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js"></script>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    canvas { display: block; }
+    #ui { position: absolute; top: 10px; left: 10px; color: white; font-family: Arial, sans-serif; font-size: 16px; }
+  </style>
+</head>
+<body>
+  <div id="ui"></div>
+  <script>
+    let player;
+    let cells = [];
+    const maxSpeed = 200;
+    const speedFactor = 0.5;
+    const consumptionRate = 0.01;
+    const randomAmplitude = 20;
+    const frequency = 0.1;
+    const scaleFactor = 0.5;
+    let gameOver = false;
+    let playerImage, aiImage;
+    let targetX, targetY;
+    let hasTarget = false;
+    let clickCount = 0;
+    let lastClickTime = 0;
+    const clickDecayTime = 1000;
+    const speedDecayRate = 0.6;
+    const inertiaFactor = 0.9; // New inertia factor for smooth AI movement
+
+    function preload() {
+      // Load images from local paths
+      playerImage = loadImage('player.png');
+      aiImage = loadImage('ai.png');
+    }
+
+    class Cell {
+      constructor(x, y, volume, isPlayer = false) {
+        this.x = x;
+        this.y = y;
+        this.volume = volume;
+        this.radius = sqrt(this.volume) * scaleFactor;
+        this.vx = 0;
+        this.vy = 0;
+        this.isPlayer = isPlayer;
+        this.seedX = random(1000);
+        this.seedY = random(1000);
+        this.currentSpeed = 0;
+      }
+
+      update(dt) {
+        if (!this.isPlayer) {
+          // Smooth AI movement with inertia
+          let targetVx = (noise(this.seedX + frameCount * frequency) * randomAmplitude * 2) - randomAmplitude;
+          let targetVy = (noise(this.seedY + frameCount * frequency) * randomAmplitude * 2) - randomAmplitude;
+          // Blend current velocity with target velocity for inertia
+          this.vx = this.vx * inertiaFactor + targetVx * (1 - inertiaFactor);
+          this.vy = this.vy * inertiaFactor + targetVy * (1 - inertiaFactor);
+        }
+
+        // Player's movement toward symmetric click position
+        if (this.isPlayer && hasTarget) {
+          const currentTime = millis();
+          if (currentTime - lastClickTime > clickDecayTime) {
+            clickCount = 0;
+          }
+
+          const baseSpeed = 40;
+          const speedMultiplier = 1 + clickCount * 0.5;
+          const targetSpeed = baseSpeed * speedMultiplier;
+
+          if (currentTime - lastClickTime <= clickDecayTime) {
+            this.currentSpeed = targetSpeed;
+          } else {
+            this.currentSpeed *= speedDecayRate;
+          }
+
+          const symmetricX = this.x - (targetX - this.x);
+          const symmetricY = this.y - (targetY - this.y);
+          let dx = symmetricX - this.x;
+          let dy = symmetricY - this.y;
+          let distance = sqrt(dx * dx + dy * dy);
+
+          if (distance > 5) {
+            if (distance > 0) {
+              this.vx = dx / distance * this.currentSpeed;
+              this.vy = dy / distance * this.currentSpeed;
+              this.volume -= consumptionRate * this.currentSpeed * dt;
+              this.radius = sqrt(this.volume) * scaleFactor;
+            }
+          } else {
+            this.currentSpeed *= 0.9;
+            if (this.currentSpeed < 0.1) {
+              hasTarget = false;
+            }
+          }
+        }
+
+        // Update position
+        this.x += this.vx * dt;
+        this.y += this.vy * dt;
+
+        // Keep within canvas bounds
+        this.x = constrain(this.x, this.radius, width - this.radius);
+        this.y = constrain(this.y, this.radius, height - this.radius);
+      }
+
+      draw() {
+        // Draw image if loaded, else fallback to colored circle
+        let img = this.isPlayer ? playerImage : aiImage;
+        imageMode(CENTER);
+        if (img.width > 0 && img.height > 0) {
+          image(img, this.x, this.y, this.radius * 2, this.radius * 2);
+        } else {
+          noStroke();
+          fill(this.isPlayer ? 'blue' : 'red');
+          circle(this.x, this.y, this.radius * 2);
+        }
+      }
+    }
+
+    function setup() {
+      createCanvas(800, 600);
+      // Initialize player
+      player = new Cell(width / 2, height / 2, 100, true);
+      cells = [];
+
+      // Helper function to check if a new cell overlaps with existing ones
+      function isPositionValid(x, y, volume, cells, excludeIndex = -1) {
+        let radius = sqrt(volume) * scaleFactor;
+        for (let i = 0; i < cells.length; i++) {
+          if (i !== excludeIndex) {
+            let d = dist(x, y, cells[i].x, cells[i].y);
+            let minDistance = radius + cells[i].radius + 10;
+            if (d < minDistance) return false;
+          }
+        }
+        let d = dist(x, y, player.x, player.y);
+        let minDistance = radius + player.radius + 10;
+        if (d < minDistance) return false;
+        return true;
+      }
+
+      // Initialize AI cells: 15 small (20), 30 medium (100), 20 large (200), 10 extra-large (400), 7 huge (800), 6 massive (1600), 3 gigantic (3200)
+      let volumes = Array(60).fill(20).concat(Array(30).fill(100)).concat(Array(40).fill(200)).concat(Array(20).fill(400)).concat(Array(14).fill(800)).concat(Array(14).fill(1200)).concat(Array(12).fill(1600)).concat(Array(3).fill(3200)).concat(Array(2).fill(10000));
+      for (let volume of volumes) {
+        let attempts = 0;
+        let maxAttempts = 100;
+        let x, y;
+        do {
+          x = random(width);
+          y = random(height);
+          attempts++;
+          if (attempts > maxAttempts) break;
+        } while (!isPositionValid(x, y, volume, cells));
+        cells.push(new Cell(x, y, volume));
+      }
+    }
+
+    function draw() {
+      if (gameOver) {
+        background(0);
+        fill(255);
+        textSize(32);
+        textAlign(CENTER, CENTER);
+        text(`Game Over! Final Volume: ${floor(player.volume)}`, width / 2, height / 2);
+        textSize(20);
+        text('Click to restart', width / 2, height / 2 + 40);
+        return;
+      }
+
+      background(0);
+      let dt = deltaTime / 1000; // Convert to seconds
+
+      // Update player
+      player.update(dt);
+
+      // Update AI cells
+      for (let cell of cells) {
+        cell.update(dt);
+      }
+
+      // Check engulfing
+      for (let i = cells.length - 1; i >= 0; i--) {
+        let cell = cells[i];
+        if (cell.volume > 0) {
+          let d = dist(player.x, player.y, cell.x, cell.y);
+          if (d < player.radius + cell.radius) {
+            if (player.volume > cell.volume) {
+              // Player engulfs AI cell instantly
+              player.volume += cell.volume;
+              player.radius = sqrt(player.volume) * scaleFactor;
+              cells.splice(i, 1);
+            } else if (cell.volume > player.volume) {
+              // Player touched larger cell, game over
+              gameOver = true;
+              return;
+            }
+          }
+        }
+      }
+
+      // Check AI cell vs AI cell engulfing
+      for (let i = 0; i < cells.length; i++) {
+        for (let j = cells.length - 1; j > i; j--) {
+          let cell1 = cells[i];
+          let cell2 = cells[j];
+          if (cell1.volume > 0 && cell2.volume > 0) {
+            let d = dist(cell1.x, cell1.y, cell2.x, cell2.y);
+            if (d < cell1.radius + cell2.radius) {
+              if (cell1.volume > cell2.volume) {
+                cell1.volume += cell2.volume;
+                cell1.radius = sqrt(cell1.volume) * scaleFactor;
+                cells.splice(j, 1);
+              } else if (cell2.volume > cell1.volume) {
+                cell2.volume += cell1.volume;
+                cell2.radius = sqrt(cell2.volume) * scaleFactor;
+                cells.splice(i, 1);
+                i--;
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      // Check if player volume is zero due to movement consumption
+      if (player.volume <= 0) {
+        gameOver = true;
+      }
+
+      // Draw cells
+      player.draw();
+      for (let cell of cells) {
+        cell.draw();
+      }
+
+      // Update UI
+      document.getElementById('ui').innerText = `Volume: ${floor(player.volume)}\nClick to move your cell toward the opposite position.\nEat smaller cells to grow. Avoid larger cells.`;
+    }
+
+    function mouseClicked() {
+      if (!gameOver) {
+        // Update click count and time
+        const currentTime = millis();
+        if (currentTime - lastClickTime <= clickDecayTime) {
+          clickCount++;
+        } else {
+          clickCount = 1;
+        }
+        lastClickTime = currentTime;
+
+        // Set new target position
+        targetX = mouseX;
+        targetY = mouseY;
+        hasTarget = true;
+      } else {
+        // Restart game with correct AI cell configuration
+        player = new Cell(width / 2, height / 2, 100, true);
+        cells = [];
+        let volumes = Array(60).fill(20).concat(Array(30).fill(100)).concat(Array(40).fill(200)).concat(Array(20).fill(400)).concat(Array(14).fill(800)).concat(Array(14).fill(1200)).concat(Array(12).fill(1600)).concat(Array(3).fill(3200)).concat(Array(2).fill(10000));
+        for (let volume of volumes) {
+          let attempts = 0;
+          let maxAttempts = 100;
+          let x, y;
+          do {
+            x = random(width);
+            y = random(height);
+            attempts++;
+            if (attempts > maxAttempts) break;
+          } while (!isPositionValid(x, y, volume, cells));
+          cells.push(new Cell(x, y, volume));
+        }
+        gameOver = false;
+        hasTarget = false;
+        clickCount = 0;
+        lastClickTime = 0;
+      }
+    }
+
+    // Helper function for mouseClicked (same as in setup)
+    function isPositionValid(x, y, volume, cells, excludeIndex = -1) {
+      let radius = sqrt(volume) * scaleFactor;
+      for (let i = 0; i < cells.length; i++) {
+        if (i !== excludeIndex) {
+          let d = dist(x, y, cells[i].x, cells[i].y);
+          let minDistance = radius + cells[i].radius + 10;
+          if (d < minDistance) return false;
+        }
+      }
+      let d = dist(x, y, player.x, player.y);
+      let minDistance = radius + player.radius + 10;
+      if (d < minDistance) return false;
+      return true;
+    }
+  </script>
+</body>
+</html>
