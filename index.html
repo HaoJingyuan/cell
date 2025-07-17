@@ -123,7 +123,14 @@
     }
 
     function setup() {
-      createCanvas(800, 600);
+      // 计算适合移动端的 9:16 比例画布尺寸
+      let canvasWidth = windowWidth;
+      let canvasHeight = windowWidth * (16 / 9);
+      if (canvasHeight > windowHeight) {
+        canvasHeight = windowHeight;
+        canvasWidth = windowHeight * (9 / 16);
+      }
+      createCanvas(canvasWidth, canvasHeight);
       // Initialize player
       player = new Cell(width / 2, height / 2, 100, true);
       cells = [];
@@ -295,6 +302,17 @@
       let minDistance = radius + player.radius + 10;
       if (d < minDistance) return false;
       return true;
+    }
+
+    // 添加窗口大小改变时的处理函数
+    function windowResized() {
+      let canvasWidth = windowWidth;
+      let canvasHeight = windowWidth * (16 / 9);
+      if (canvasHeight > windowHeight) {
+        canvasHeight = windowHeight;
+        canvasWidth = windowHeight * (9 / 16);
+      }
+      resizeCanvas(canvasWidth, canvasHeight);
     }
   </script>
 </body>
