@@ -286,6 +286,16 @@
         clickCount = 0;
         lastClickTime = 0;
       }
+      // 阻止默认触摸行为
+      return true;
+    }
+
+    // 添加触摸事件处理函数
+    function touchStarted() {
+      // 复用 mouseClicked 逻辑
+      mouseClicked();
+      // 阻止默认触摸行为
+      return false;
     }
 
     // Helper function for mouseClicked (same as in setup)
